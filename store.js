@@ -1,43 +1,58 @@
 /* Sends records to Supabase. Every row first goes into an outbox kept in localStorage, so nothing is lost
- * when the network drops or the page is closed; the outbox is flushed in order and retried later. */
+ * when the network drops or the page is closed; the outbox is flushed in order and retried later.
+ * The outbox is re-read from storage on every change, so several tabs of the same browser can share it
+ * (a row sent twice is ignored by the server thanks to the unique keys). */
 (function (root) {
   "use strict";
   const OUTBOX = "barricade-rec-outbox";
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 
   class Store {
     constructor(cfg) {
       this.url = cfg.supabaseUrl.replace(/\/$/, "") + "/rest/v1/";
       this.key = cfg.supabaseKey;
-      this.box = this.load();
+      this.mem = [];            // fallback when localStorage is unavailable
       this.flushing = false;
       this.lastError = null;
       this.onchange = () => {};
       setInterval(() => this.flush(), 15000);
-      root.addEventListener && root.addEventListener("online", () => this.flush());
+      if (root.addEventListener) {
+        root.addEventListener("online", () => this.flush());
+        root.addEventListener("storage", (e) => { if (e.key === OUTBOX) this.onchange(); });
+      }
     }
     headers(extra) {
       return Object.assign({ apikey: this.key, "Content-Type": "application/json" }, extra || {});
     }
-    load() {
-      try { const b = JSON.parse(localStorage.getItem(OUTBOX) || "[]"); return Array.isArray(b) ? b : []; }
-      catch (e) { return []; }
+    read() {
+      try {
+        const raw = localStorage.getItem(OUTBOX);
+        const b = raw ? JSON.parse(raw) : [];
+        return Array.isArray(b) ? b : [];
+      } catch (e) { return this.mem.slice(); }
     }
-    save() {
-      try { localStorage.setItem(OUTBOX, JSON.stringify(this.box)); } catch (e) { /* storage full or blocked */ }
+    write(box) {
+      this.mem = box;
+      try { localStorage.setItem(OUTBOX, JSON.stringify(box)); } catch (e) { /* storage full or blocked */ }
     }
-    pending() { return this.box.length; }
+    remove(id) { this.write(this.read().filter((x) => x.uid !== id)); }
+    pending() { return this.read().length; }
     enqueue(table, row) {
-      this.box.push({ table, row });
-      this.save();
+      const box = this.read();
+      box.push({ uid: uid(), table, row });
+      this.write(box);
       this.onchange();
       this.flush();
     }
     async flush() {
-      if (this.flushing || !this.box.length) return;
+      if (this.flushing) return;
       this.flushing = true;
       try {
-        while (this.box.length) {
-          const { table, row } = this.box[0];
+        for (;;) {
+          const box = this.read();
+          if (!box.length) break;
+          const item = box[0];
+          const { table, row } = item;
           const conflict = table === "moves" ? "?on_conflict=game_id,ply" : "?on_conflict=id";
           let res;
           try {
@@ -51,8 +66,7 @@
             break;
           }
           if (res.ok) {   // duplicates are ignored by the server (resolution=ignore-duplicates) and still return 201
-            this.box.shift();
-            this.save();
+            this.remove(item.uid);
             this.lastError = null;
             this.onchange();
             continue;
@@ -67,8 +81,7 @@
               dead.push({ table, row, status: res.status, detail });
               localStorage.setItem(OUTBOX + "-rejected", JSON.stringify(dead.slice(-200)));
             } catch (e) { /* ignore */ }
-            this.box.shift();
-            this.save();
+            this.remove(item.uid);
             continue;
           }
           break;

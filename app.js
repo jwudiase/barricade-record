@@ -71,6 +71,7 @@
   let hover = null, touchPending = null, flash = null, msg = null;
   let lastOrient = 1, lastPointer = "mouse";
   let newGameArmed = 0;
+  let otherTab = false;    // another tab of this browser took over the saved game
   let LEG = [new Map(), new Map(), new Map()];
   let viewCache = null;
 
@@ -78,7 +79,7 @@
     "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
 
   function saveGame() {
-    if (!G) return;
+    if (!G || otherTab) return;
     try {
       localStorage.setItem(GKEY, JSON.stringify({
         id: G.id, human: G.human, hist: G.hist, rowsSent: G.rowsSent, over: G.over,
@@ -92,7 +93,7 @@
     return s;
   }
   const isOver = () => !G || G.over;
-  const myTurn = () => !!(G && !G.over && G.s[B.TURN] === G.human && !busy);
+  const myTurn = () => !!(G && !G.over && G.s[B.TURN] === G.human && !busy && !otherTab);
 
   function pushRow(row) {
     row.game_id = G.id;
@@ -104,6 +105,7 @@
 
   function newGame() {
     if (!player) { openNameDialog(); return; }
+    otherTab = false;
     gen++;
     bot.restart();
     adviser.restart();
@@ -158,7 +160,7 @@
     G.turnStart = Date.now();
     G.snap = R.snapshot(G.s);
     const myGen = gen, ply = G.hist.length;
-    G.rec = { ply, promise: adviser.search(G.s, settings.level).catch(() => null) };
+    G.rec = { ply, level: settings.level, promise: adviser.search(G.s, settings.level).catch(() => null) };
     G.rec.promise.then(() => { if (myGen === gen) renderRecord(); });
     render();
   }
@@ -177,7 +179,9 @@
     G.hist.push(a);
     G.over = B.winner(after) >= 0;
     G.pendingRow = Object.assign({}, row);
-    const recP = G.rec && G.rec.ply === row.ply - 1 ? G.rec.promise : Promise.resolve(null);
+    const recOk = !!(G.rec && G.rec.ply === row.ply - 1);
+    const recP = recOk ? G.rec.promise : Promise.resolve(null);
+    const recLevel = recOk ? G.rec.level : level;
     G.rec = null;
     saveGame();
     viewCache = null;
@@ -188,7 +192,7 @@
     const botP = G.over ? Promise.resolve(null) : bot.search(G.s, level).catch((e) => ({ error: e }));
     // value of the move I actually played, searched to the same horizon as the AI's recommendation
     // (recommendation = depth `level` from my position = my move + level-1 replies)
-    const mineP = (G.over || level < 2) ? Promise.resolve(null) : adviser.search(G.s, level - 1).catch(() => null);
+    const mineP = (G.over || recLevel < 2) ? Promise.resolve(null) : adviser.search(G.s, recLevel - 1).catch(() => null);
     const [rec, br, mineV] = await Promise.all([recP, botP, mineP]);
     if (myGen !== gen) return;
     if (rec) {
@@ -213,7 +217,7 @@
   }
 
   async function botMove() {
-    if (!G || G.over || G.s[B.TURN] === G.human || busy) { render(); return; }
+    if (!G || G.over || G.s[B.TURN] === G.human || busy || otherTab) { render(); return; }
     const myGen = gen, level = settings.level;
     busy = true; busyLabel = "AI가 생각 중…"; render();
     let br;
@@ -438,6 +442,7 @@
     return { frac: 0.5 + 0.5 * Math.tanh(sc / 300), text, meta };
   }
   function statusView() {
+    if (otherTab) return ["다른 탭에서 게임을 진행 중입니다. 이 탭은 닫아 주세요 (새로 고치면 그 게임을 이어서 둡니다)", "error"];
     if (msg && msg.until > Date.now()) return [msg.text, msg.kind];
     if (!player) return ["이름을 입력하면 시작합니다", "idle"];
     const S = view();
@@ -688,6 +693,10 @@
   $("show-paths").addEventListener("change", (e) => { settings.showPaths = e.target.checked; saveSettings(); draw(); });
   $("flip").addEventListener("change", (e) => { settings.flip = e.target.checked; saveSettings(); render(); });
   window.addEventListener("resize", setupCanvas);
+  window.addEventListener("storage", (e) => {
+    if (e.key === GKEY && G && !otherTab) { otherTab = true; gen++; busy = false; busyLabel = ""; render(); }
+    if (e.key === PKEY) { try { player = localStorage.getItem(PKEY) || player; } catch (err) { /* blocked */ } renderPanel(); }
+  });
   try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw); } catch (e) { /* old browser */ }
 
   // ---------------------------------------------------------------- start
