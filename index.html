@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barricade 기록 대국</title>
+<style>
+:root {
+  --bg: #f3efe7; --panel: #fffcf6; --text: #24211c; --muted: #6f685d; --line: #e4dccd; --chip: #f1ebdf;
+  --board-frame: #3a3027; --board-gutter: #5e4c3b; --board-cell: #eadfc8; --board-label: #d8c8aa;
+  --p0: #2f6db5; --p1: #c8463c; --hint: #e3a520; --bad: #d23b3b; --pawn-ring: #fffaf0; --ok: #3aa45b;
+  --btn: #24211c; --btn-text: #fffcf6;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131518; --panel: #1b1e22; --text: #ebe7e0; --muted: #9b958b; --line: #2b2f35; --chip: #24282d;
+    --board-frame: #0d0f11; --board-gutter: #221e1a; --board-cell: #5a4f42; --board-label: #8d7f6a;
+    --p0: #5c9cec; --p1: #ef6d60; --hint: #f2c14e; --bad: #ff6060; --pawn-ring: #f4efe6;
+    --btn: #ebe7e0; --btn-text: #131518;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+}
+.wrap { max-width: 1060px; margin: 0 auto; padding: 20px 16px 40px; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+header h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+header p { margin: 0; color: var(--muted); font-size: 13px; flex: 1; min-width: 200px; }
+.who { display: flex; align-items: center; gap: 8px; font-size: 13px; background: var(--chip); border-radius: 999px; padding: 4px 6px 4px 12px; }
+.who b { font-weight: 700; }
+.who button { padding: 3px 10px; font-size: 12px; border-radius: 999px; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px; align-items: start; margin-top: 16px; }
+@media (max-width: 920px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.board-wrap { position: relative; width: 100%; max-width: 660px; margin: 0 auto; }
+canvas { display: block; width: 100%; height: auto; border-radius: 16px; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.banner {
+  position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent); border-radius: 16px; backdrop-filter: blur(1px);
+}
+.banner.show { display: flex; }
+.banner .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px 26px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+.banner .big { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.banner .sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+
+.panel { display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.status { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.status .pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.status.turn .pulse { background: var(--me, var(--p0)); }
+.status.think .pulse { background: var(--hint); animation: pulse 1s ease-in-out infinite; }
+.status.win .pulse { background: var(--ok); }
+.status.lose .pulse, .status.error .pulse { background: var(--bad); }
+.status.error { color: var(--bad); }
+@keyframes pulse { 50% { opacity: .25; } }
+.substatus { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+.players { display: grid; gap: 8px; }
+.player { display: grid; grid-template-columns: 14px 1fr auto; gap: 4px 10px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--chip); border: 2px solid transparent; }
+.player.active { border-color: var(--pc); }
+.player .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--pc); }
+.player .name { font-weight: 700; }
+.player .name small { font-weight: 500; color: var(--muted); margin-left: 6px; font-size: 12px; }
+.player .dist { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; }
+.player .pips { grid-column: 2 / 4; display: flex; gap: 3px; align-items: center; }
+.player .pips i { display: block; width: 6px; height: 14px; border-radius: 2px; background: var(--pc); }
+.player .pips i.used { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.player .pips span { font-size: 12px; color: var(--muted); margin-left: 6px; }
+
+.eval .bar { height: 10px; border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--bot, var(--p1)) 55%, transparent); }
+.eval .fill { height: 100%; width: 50%; background: var(--me, var(--p0)); transition: width .35s ease; }
+.eval .text { font-size: 14px; margin-top: 8px; font-weight: 600; }
+.eval .meta { font-size: 12px; color: var(--muted); }
+
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button {
+  font: inherit; font-size: 14px; font-weight: 600; padding: 9px 10px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+}
+button.primary { background: var(--btn); color: var(--btn-text); border-color: var(--btn); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--p0); outline-offset: 2px; }
+#btn-retry { display: none; width: 100%; margin-top: 8px; }
+
+.rec h2, .settings h2, .moves h2 { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; letter-spacing: .02em; }
+.rec .line { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+.rec-dot.wait { background: var(--hint); }
+.rec-dot.err { background: var(--bad); }
+.rec .err { font-size: 12px; color: var(--bad); margin-top: 4px; }
+.rec .err:empty { display: none; }
+.rec .tbl { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 10px; font-size: 12px; }
+.rec .tbl:empty { display: none; }
+.rec .tbl div { display: flex; justify-content: space-between; border-bottom: 1px dashed var(--line); padding: 2px 0; }
+.rec .tbl span { color: var(--muted); }
+.rec .tbl b { font-variant-numeric: tabular-nums; }
+
+.row { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: center; margin-bottom: 10px; }
+.row > label, .row > span.lbl { font-size: 13px; color: var(--muted); }
+.row .fixed { font-size: 13px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--chip); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: none; background: transparent; padding: 6px 8px; font-size: 13px; }
+.seg button.on { background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+select { font: inherit; font-size: 13px; width: 100%; padding: 7px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 6px; cursor: pointer; }
+.note { font-size: 12px; color: var(--hint); margin: -4px 0 8px 74px; }
+.note:empty { display: none; }
+
+.moves ol { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; display: grid; grid-template-columns: 34px 1fr 1fr; gap: 2px 6px; font-variant-numeric: tabular-nums; }
+.moves li { display: contents; }
+.moves .num { color: var(--muted); font-size: 13px; padding: 2px 0; }
+.moves .mv { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; padding: 2px 6px; border-radius: 6px; display: flex; align-items: center; gap: 6px; }
+.moves .mv::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; }
+.moves .mv.wall::before { border-radius: 2px; width: 10px; height: 4px; }
+.moves .mv.last { background: var(--chip); font-weight: 700; }
+.moves li.empty { display: block; grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+details.help summary { cursor: pointer; font-size: 13px; color: var(--muted); font-weight: 600; }
+details.help ul { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+details.help li { margin-bottom: 4px; }
+
+.modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.45); z-index: 10; padding: 16px; }
+.modal.show { display: flex; }
+.modal form { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; width: 100%; max-width: 360px; box-shadow: 0 16px 40px rgba(0,0,0,.25); }
+.modal h2 { margin: 0 0 6px; font-size: 18px; }
+.modal p { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+.modal input { font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); margin-bottom: 12px; }
+.modal button { width: 100%; }
+.modal .warn { font-size: 12px; color: var(--hint); margin: -4px 0 10px; }
+.modal .warn:empty { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Barricade 기록 대국</h1>
+    <p>AI와 한 판 두면 모든 수와 요인 값이 팀 기록에 자동으로 저장됩니다</p>
+    <div class="who">플레이어 <b id="player-name"></b><button id="btn-name" type="button">변경</button></div>
+  </header>
+  <main class="layout">
+    <section class="board-wrap">
+      <canvas id="board" aria-label="바리케이드 게임판"></canvas>
+      <div class="banner" id="banner">
+        <div class="box">
+          <div class="big" id="banner-title"></div>
+          <div class="sub" id="banner-sub"></div>
+          <button class="primary" id="banner-new">새 게임</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="card">
+        <div class="status" id="status"><span class="pulse"></span><span id="status-text">불러오는 중…</span></div>
+        <div class="substatus" id="substatus"></div>
+        <button id="btn-retry">AI 수 두기</button>
+      </div>
+
+      <div class="players" id="players"></div>
+
+      <div class="card eval">
+        <div class="bar"><div class="fill" id="eval-fill"></div></div>
+        <div class="text" id="eval-text">AI 평가: 아직 없음</div>
+        <div class="meta" id="eval-meta">AI가 한 수 두면 형세 판단이 표시됩니다</div>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="btn-new">새 게임</button>
+        <button id="btn-excel">전체 기록 엑셀 받기</button>
+      </div>
+
+      <div class="card rec">
+        <h2>자동 기록</h2>
+        <div class="line"><span class="rec-dot" id="rec-dot"></span><span id="rec-line"></span></div>
+        <div class="err" id="rec-err"></div>
+        <div class="tbl" id="rec-table"></div>
+      </div>
+
+      <div class="card settings">
+        <h2>설정</h2>
+        <div class="row">
+          <span class="lbl">내 진영</span>
+          <div class="seg" id="side-seg">
+            <button data-side="0" type="button">선공 (P0)</button>
+            <button data-side="1" type="button">후공 (P1)</button>
+          </div>
+        </div>
+        <div class="note" id="side-note"></div>
+        <div class="row">
+          <span class="lbl">AI</span>
+          <span class="fixed">알파베타 탐색</span>
+        </div>
+        <div class="row">
+          <label for="level">강도</label>
+          <select id="level"></select>
+        </div>
+        <label class="check"><input type="checkbox" id="show-paths"> 최단 경로 표시</label>
+        <label class="check"><input type="checkbox" id="flip"> 후공일 때 내 말을 화면 아래쪽에</label>
+      </div>
+
+      <div class="card moves">
+        <h2>기보</h2>
+        <ol id="moves"></ol>
+      </div>
+
+      <details class="card help">
+        <summary>조작법과 기록 안내</summary>
+        <ul>
+          <li>말 이동: 점으로 표시된 칸을 클릭합니다.</li>
+          <li>벽 설치: 칸 사이 홈에 마우스를 올리면 미리보기가 나오고, 클릭하면 설치됩니다. 가로 홈은 가로 벽, 세로 홈은 세로 벽입니다.</li>
+          <li>터치 화면에서는 벽을 한 번 탭해 미리보고, 같은 자리를 한 번 더 탭해 확정합니다.</li>
+          <li>빨간 미리보기는 놓을 수 없는 자리(겹침·교차, 또는 누군가의 길을 완전히 막음)입니다.</li>
+          <li>판 위·아래의 색 띠가 각자의 목표 줄입니다. 내 색 띠에 먼저 닿으면 이깁니다.</li>
+          <li>무르기와 힌트는 없습니다. 둔 수는 바로 기록됩니다.</li>
+          <li>강도 변경은 다음 AI 수부터, 진영 변경은 새 게임부터 적용됩니다. 어떤 강도였는지도 함께 기록됩니다.</li>
+          <li>창을 닫았다 다시 열면 진행 중이던 판을 이어서 둡니다. 인터넷이 끊겨도 기록은 보관했다가 다시 연결되면 보냅니다.</li>
+          <li>"전체 기록 엑셀 받기"는 조원 모두의 기록을 엑셀 파일 하나로 내려받습니다.</li>
+        </ul>
+      </details>
+    </aside>
+  </main>
+</div>
+
+<div class="modal" id="name-modal">
+  <form id="name-form" autocomplete="off">
+    <h2>플레이어 이름</h2>
+    <p>기록에 남을 이름(별명)을 입력하세요. 이 링크를 아는 사람은 기록을 볼 수 있으니 실명 대신 별명을 권합니다.</p>
+    <div class="warn" id="name-note"></div>
+    <input id="name-input" maxlength="20" placeholder="예: 바리왕">
+    <button class="primary" type="submit">시작</button>
+  </form>
+</div>
+
+<script src="config.js"></script>
+<script src="zobrist.js"></script>
+<script src="engine.js"></script>
+<script src="record.js"></script>
+<script src="store.js"></script>
+<script src="excel.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
