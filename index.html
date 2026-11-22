@@ -216,7 +216,8 @@ details.help li { margin-bottom: 4px; }
           <li>무르기와 힌트는 없습니다. 둔 수는 바로 기록됩니다.</li>
           <li>강도 변경은 다음 AI 수부터, 진영 변경은 새 게임부터 적용됩니다. 어떤 강도였는지도 함께 기록됩니다.</li>
           <li>창을 닫았다 다시 열면 진행 중이던 판을 이어서 둡니다. 인터넷이 끊겨도 기록은 보관했다가 다시 연결되면 보냅니다.</li>
-          <li>"전체 기록 엑셀 받기"는 조원 모두의 기록을 엑셀 파일 하나로 내려받습니다.</li>
+          <li>"전체 기록 엑셀 받기"는 조원 모두의 기록을 엑셀 파일 하나로 내려받습니다. 끝까지 둔 판의 후반 국면으로 만든 요인별 승률 그래프와 회귀선도 함께 들어 있습니다.</li>
+          <li>국면 기준: 두 사람이 쓴 벽의 합계가 0~5개면 초반, 6~13개면 중반, 14개 이상이거나 한쪽 벽이 다 떨어지면 후반입니다.</li>
         </ul>
       </details>
     </aside>
@@ -233,12 +234,13 @@ details.help li { margin-bottom: 4px; }
   </form>
 </div>
 
-<script src="config.js"></script>
-<script src="zobrist.js"></script>
-<script src="engine.js"></script>
-<script src="record.js"></script>
-<script src="store.js"></script>
-<script src="excel.js"></script>
-<script src="app.js"></script>
+<script src="config.js?v=1.1"></script>
+<script src="zobrist.js?v=1.1"></script>
+<script src="engine.js?v=1.1"></script>
+<script src="record.js?v=1.1"></script>
+<script src="store.js?v=1.1"></script>
+<script src="excel.js?v=1.1"></script>
+<script src="xlcharts.js?v=1.1"></script>
+<script src="app.js?v=1.1"></script>
 </body>
 </html>

@@ -557,8 +557,10 @@
     const s = G.s;
     const sn = snap || R.snapshot(s);
     const f = sn.f[G.human];
-    const items = [["국면", G.over ? "종료" : R.phaseOf(s)], ["거리 우위", fmt(f[6])], ["내 거리", fmt(f[0])], ["상대 거리", fmt(f[1])],
-                   ["위협(벽2)", fmt(f[4])], ["기회(벽2)", fmt(f[5])]];
+    const used = 2 * B.MAX_WALLS - s[B.WL0] - s[B.WL1];
+    const items = [["국면", G.over ? "종료" : R.phaseOf(s)], ["쓴 벽 합계", used + " / 20"],
+                   ["우회율", fmt(f[7])], ["벽 점유율", fmt(f[8])], ["경로 취약도", fmt(f[9])],
+                   ["공격 잠재력", fmt(f[10])], ["경로 폭", fmt(f[11])], ["중앙 이탈도", fmt(f[12])]];
     for (const [k, v] of items) {
       const d = document.createElement("div");
       const a = document.createElement("span"); a.textContent = k;
@@ -590,16 +592,18 @@
 
   // ---------------------------------------------------------------- excel
   let excelBusy = false;
-  function loadExcelJs() {
-    if (window.ExcelJS) return Promise.resolve();
+  function loadScript(src, ready) {
+    if (ready()) return Promise.resolve();
     return new Promise((res, rej) => {
       const sc = document.createElement("script");
-      sc.src = "exceljs.min.js";
+      sc.src = src;
       sc.onload = () => res();
       sc.onerror = () => rej(new Error("엑셀 라이브러리를 불러오지 못했습니다"));
       document.head.appendChild(sc);
     });
   }
+  const loadExcelJs = () => Promise.all([loadScript("exceljs.min.js", () => !!window.ExcelJS),
+                                         loadScript("jszip.min.js", () => !!window.JSZip)]);
   async function downloadExcel() {
     if (excelBusy) return;
     excelBusy = true;
@@ -609,8 +613,10 @@
       await store.flush();
       const [games, moves] = await Promise.all([store.fetchAll("games", "created_at.asc"), store.fetchAll("moves", "id.asc"), loadExcelJs()]);
       btn.textContent = "엑셀 만드는 중…";
-      const wb = window.BR_EXCEL.buildWorkbook(window.ExcelJS, games, moves);
-      const buf = await wb.xlsx.writeBuffer();
+      const { wb, charts } = window.BR_EXCEL.buildWorkbook(window.ExcelJS, games, moves);
+      let buf = await wb.xlsx.writeBuffer();
+      btn.textContent = "그래프 넣는 중…";
+      buf = await window.BR_XLCHARTS.addCharts(window.JSZip, buf, charts);
       const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const d = new Date(Date.now() + 9 * 3600e3).toISOString();
       const name = "바리케이드_기록_" + d.slice(0, 10).replace(/-/g, "") + "_" + d.slice(11, 16).replace(":", "") + ".xlsx";

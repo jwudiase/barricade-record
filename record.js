@@ -11,17 +11,17 @@
     share: "벽 점유율", vuln: "경로 취약도", attack: "공격 잠재력", width: "경로 폭", center: "중앙 이탈도",
     threat1: "위협(벽1)", opp1: "기회(벽1)",
   };
-  const tmp = new Int16Array(81);
   const clean = (x) => Math.round(x * 1e10) / 1e10;   // drop floating-point noise such as 0.19999999999999998
 
-  /** 초반: both players have used at most 2 walls; 종반: someone's shortest distance <= 3 or a player has no
-   * walls left (checked first); otherwise 중반. Uses the position before the move. */
-  function phaseOf(s) {
-    const d0 = B.pathDist(s, 0, tmp), d1 = B.pathDist(s, 1, tmp);
-    if (Math.min(d0, d1) <= 3 || s[B.WL0] === 0 || s[B.WL1] === 0) return "종반";
-    if (B.MAX_WALLS - s[B.WL0] <= 2 && B.MAX_WALLS - s[B.WL1] <= 2) return "초반";
-    return "중반";
+  /** Game phase from the walls both players have used so far (position before the move; never goes back):
+   * 초반 0-5 walls used in total, 중반 6-13, 후반 14 or more or one player has no walls left. */
+  function phaseFromWalls(wlA, wlB) {
+    const used = 2 * B.MAX_WALLS - wlA - wlB;
+    if (used >= 14 || wlA === 0 || wlB === 0) return "후반";
+    if (used >= 6) return "중반";
+    return "초반";
   }
+  function phaseOf(s) { return phaseFromWalls(s[B.WL0], s[B.WL1]); }
 
   /** Factor snapshot of a position: core + vectors for both players. */
   function snapshot(s) {
@@ -55,5 +55,5 @@
     return { row, after: sA, snapAfter: snapA };
   }
 
-  root.BR_RECORD = { FN, KO, phaseOf, snapshot, moveRow };
+  root.BR_RECORD = { FN, KO, phaseOf, phaseFromWalls, snapshot, moveRow };
 })(typeof self !== "undefined" ? self : globalThis);

@@ -23,7 +23,7 @@ create table if not exists public.moves (
   notation     text not null check (char_length(notation) <= 4),     -- e2, d4h, d4v
   action       smallint not null check (action between 0 and 242),
   action_type  text not null check (action_type in ('이동', '공격 벽', '수비 벽', '기타 벽')),
-  phase        text not null check (phase in ('초반', '중반', '종반')),
+  phase        text not null check (phase in ('초반', '중반', '종반', '후반')),   -- '종반' = older app versions
   ai_level     smallint,                                               -- AI 강도 setting in effect
   -- values before the move, my viewpoint
   b_d_me double precision, b_d_op double precision, b_w_me double precision, b_w_op double precision,
@@ -69,3 +69,7 @@ grant select, insert on public.games to anon, authenticated;
 grant select, insert on public.moves to anon, authenticated;
 revoke update, delete, truncate on public.games from anon, authenticated;
 revoke update, delete, truncate on public.moves from anon, authenticated;
+
+-- v1.1 (2026-11-22): new phase rule (walls used: 0-5 초반, 6-13 중반, 14+ or one side 0 → 후반)
+-- alter table public.moves drop constraint if exists moves_phase_check;
+-- alter table public.moves add constraint moves_phase_check check (phase in ('초반', '중반', '종반', '후반'));
