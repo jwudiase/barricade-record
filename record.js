@@ -14,10 +14,13 @@
   const clean = (x) => Math.round(x * 1e10) / 1e10;   // drop floating-point noise such as 0.19999999999999998
 
   /** Game phase from the walls both players have used so far (position before the move; never goes back):
-   * 초반 0-5 walls used in total, 중반 6-13, 후반 14 or more or one player has no walls left. */
-  function phaseFromWalls(wlA, wlB) {
+   * 초반 0-5 walls used in total, 중반 6-13, 후반 14 or more or one player has no walls left (the stored label).
+   * opt = { late, onEmpty } changes the 후반 threshold for analysis and display. */
+  function phaseFromWalls(wlA, wlB, opt) {
+    const late = opt && opt.late ? opt.late : 14;
+    const onEmpty = opt && opt.onEmpty === false ? false : true;
     const used = 2 * B.MAX_WALLS - wlA - wlB;
-    if (used >= 14 || wlA === 0 || wlB === 0) return "후반";
+    if (used >= late || (onEmpty && (wlA === 0 || wlB === 0))) return "후반";
     if (used >= 6) return "중반";
     return "초반";
   }

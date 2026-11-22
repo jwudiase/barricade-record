@@ -3,5 +3,5 @@
 window.BR_CONFIG = {
   supabaseUrl: "https://sxibmezimwuneklicdjr.supabase.co",
   supabaseKey: "sb_publishable_1a9tu0s-SbUYIEQWpqUFIA_5o2-hKTZ",
-  appVersion: "1.1",
+  appVersion: "1.2",
 };

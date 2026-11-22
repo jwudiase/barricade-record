@@ -32,15 +32,25 @@
   /** Korean subject particle 이/가 after a word. */
   const iga = (w) => { const c = w.charCodeAt(w.length - 1); return c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 ? "이" : "가"; };
 
-  /** Same rule as the app (record.js): walls used by both players so far. */
-  function phaseFromWalls(wMe, wOp) {
+  /** Phase from the walls both players have used so far. opt.late = walls used from which 후반 starts (default 14),
+   * opt.onEmpty = a player with no walls left also means 후반 (default true). */
+  const normOpt = (opt) => ({ late: opt && opt.late ? opt.late : 14, onEmpty: !(opt && opt.onEmpty === false) });
+  function phaseFromWalls(wMe, wOp, opt) {
+    const o = normOpt(opt);
     const used = 20 - wMe - wOp;
-    if (used >= 14 || wMe === 0 || wOp === 0) return "후반";
+    if (used >= o.late || (o.onEmpty && (wMe === 0 || wOp === 0))) return "후반";
     if (used >= 6) return "중반";
     return "초반";
   }
-  const phaseOfRow = (m) => (m.b_w_me === null || m.b_w_me === undefined ? (m.phase === "종반" ? "후반" : m.phase)
-                                                                         : phaseFromWalls(m.b_w_me, m.b_w_op));
+  const phaseOfRow = (m, opt) => (m.b_w_me === null || m.b_w_me === undefined ? (m.phase === "종반" ? "후반" : m.phase)
+                                                                              : phaseFromWalls(m.b_w_me, m.b_w_op, opt));
+  /** Human-readable description of the phase rule in use. */
+  function ruleText(opt) {
+    const o = normOpt(opt);
+    const mid = o.late > 6 ? "6~" + (o.late - 1) + "개 중반, " : "";
+    return "두 사람이 쓴 벽의 합계 " + (o.late > 6 ? "0~5개 초반, " : "0~" + (o.late - 1) + "개 초반, ") + mid + o.late + "개 이상" +
+           (o.onEmpty ? "이거나 한쪽 벽이 다 떨어지면" : "이면") + " 후반";
+  }
 
   /** Bin of a factor value: 0.1-wide bins, or the five exact levels of 중앙 이탈도. */
   function binOf(f, x) {
@@ -80,14 +90,14 @@
   }
 
   /** Late-game win rate per factor bin. Each finished game counts at most once per bin. */
-  function lateStats(games, moves) {
+  function lateStats(games, moves, opt) {
     const { byGame, played } = groupGames(games, moves);
     const used = [];
     for (const g of played) {
       const list = byGame.get(g.id);
       const last = list[list.length - 1];
       if (!last || !last.game_over) continue;            // unfinished games have no result
-      const late = list.filter((m) => phaseOfRow(m) === "후반");
+      const late = list.filter((m) => phaseOfRow(m, opt) === "후반");
       if (!late.length) continue;
       used.push({ g, won: last.winner === "나", late });
     }
@@ -137,7 +147,8 @@
   const colLetter = (n) => { let s = ""; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; } return s; };
 
   /** games/moves: rows as stored in Supabase. Returns { wb, charts }. */
-  function buildWorkbook(ExcelJS, games, moves) {
+  function buildWorkbook(ExcelJS, games, moves, opt) {
+    const o = normOpt(opt);
     const { byGame, played } = groupGames(games, moves);
     const info = new Map();
     played.forEach((g, i) => {
@@ -152,7 +163,7 @@
       const recs = mine.filter((m) => m.rec_match !== null && m.rec_match !== undefined);
       const losses = mine.filter((m) => m.eval_loss !== null && m.eval_loss !== undefined);
       const cnt = (t) => mine.filter((m) => m.action_type === t).length;
-      const lateStart = list.find((m) => phaseOfRow(m) === "후반");
+      const lateStart = list.find((m) => phaseOfRow(m, o) === "후반");
       info.set(g.id, {
         no: i + 1, g, list, done, result,
         level: levels.length === 1 ? levels[0] : (levels.length ? levels.join("→") : (g.start_level ?? "")),
@@ -188,14 +199,14 @@
     if (played.length) ws1.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: h1.length } };
 
     // ------------------------------------------------------------ 후반 그래프
-    const st = lateStats(games, moves);
+    const st = lateStats(games, moves, o);
     const ws = wb.addWorksheet(LATE_SHEET, { views: [{ showGridLines: false }] });
     [13, 9, 8, 8, 9, 13, 13, 11].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
     ws.getColumn(9).width = 3;
-    ws.getCell("A1").value = "후반 국면 · 요인별 승률 그래프와 회귀 분석";
+    ws.getCell("A1").value = "후반 국면 · 요인별 승률 그래프와 회귀 분석  (후반 기준: 쓴 벽 " + o.late + "개 이상" + (o.onEmpty ? " 또는 한쪽 벽 0개" : "") + ")";
     ws.getCell("A1").font = { bold: true, size: 14 };
     const notes = [
-      "· 끝까지 둔 판의 후반 장면만 씁니다. 후반 = 두 사람이 쓴 벽의 합계가 14개 이상이거나 한쪽 벽이 다 떨어진 뒤.",
+      "· 끝까지 둔 판의 후반 장면만 씁니다. 국면 기준: " + ruleText(o) + ".",
       "· 값은 모두 나(사람) 기준이고, 0.1 간격 구간으로 묶습니다 (중앙 이탈도는 0, 0.25, 0.5, 0.75, 1의 5단계).",
       "· 한 판에서 같은 구간이 여러 번 나와도 그 판은 그 구간에 한 번만 셉니다. 승률 = 그 구간을 지난 판 중 내가 이긴 판의 비율.",
       "· 회귀선: " + MIN_N + "판 이상인 구간만, 판 수를 가중치로 한 직선(가중 최소제곱법). " + MIN_N + "판 미만 구간은 회색 점으로만 표시합니다.",
@@ -308,7 +319,7 @@
       const x = info.get(g.id);
       for (const m of x.list) {
         ws2.addRow([
-          x.no, g.player, x.result, m.ply, m.mover, m.notation, m.action_type, phaseOfRow(m), m.ai_level,
+          x.no, g.player, x.result, m.ply, m.mover, m.notation, m.action_type, phaseOfRow(m, o), m.ai_level,
           ...SIX.map((f) => r4(m["b_" + f.key])),
           ...SIX.map((f) => r4(m["c_" + f.key])),
           ...REF.map(([k]) => r4(m["b_" + k])),
@@ -361,7 +372,7 @@
       ["위협(벽1) / 기회(벽1)", "벽 1개로 늘릴 수 있는 내 거리 / 상대 거리의 최대 증가량."],
       ["갈래 봉쇄 위협·기회(벽2)", "벽을 최대 2개 더 놓아 늘릴 수 있는 내 거리 / 상대 거리의 최대 증가량."],
       ["행동 종류", "이동 / 공격 벽(상대 거리를 늘린 벽) / 수비 벽(둔 쪽의 위협(벽1)·위협(벽2) 중 하나 이상을 줄이고 어느 것도 늘리지 않은 벽) / 기타 벽."],
-      ["국면", "두기 전 국면 기준, 두 사람이 쓴 벽의 합계로 나눕니다. 0~5개 초반, 6~13개 중반, 14개 이상이거나 한쪽 벽이 다 떨어지면 후반. 예전 기록도 이 기준으로 다시 계산해 보여 줍니다."],
+      ["국면", "두기 전 국면 기준, 이 파일은 '" + ruleText(o) + "'으로 나눴습니다. 기준은 앱의 '엑셀 후반 그래프 기준'에서 바꿀 수 있고, 이미 둔 판도 남은 벽 수로 다시 계산합니다. (기록에 저장되는 국면 이름표는 14개 기준)"],
       ["후반 그래프", "끝까지 둔 판의 후반 장면만 쓰고, 한 판은 한 구간에 한 번만 셉니다. 구간 승률 = 그 구간을 지난 판 중 내가 이긴 판 비율. 회귀선은 " + MIN_N + "판 이상인 구간만 판 수를 가중치로 한 직선입니다. 기울기는 요인이 1 오를 때 승률 변화, R²는 선이 점들을 얼마나 잘 설명하는지(0~1)입니다."],
       ["AI 강도", "AI 알파베타 탐색 깊이(몇 수 앞까지 보는지). 그 수를 둘 때의 설정값입니다."],
       ["AI 평가 (나 기준)", "AI가 자기 수를 고를 때 본 형세를 나 기준으로 바꾼 값. 100 = 1수 차이, + 는 나에게 유리. ±99,000을 넘으면 강제 승패 수순을 찾았다는 뜻입니다."],
@@ -378,5 +389,5 @@
     return { wb, charts };
   }
 
-  root.BR_EXCEL = { buildWorkbook, lateStats, phaseFromWalls, binOf, wls, isMate, SIX, MIN_N, colLetter };
+  root.BR_EXCEL = { buildWorkbook, lateStats, phaseFromWalls, ruleText, binOf, wls, isMate, SIX, MIN_N, colLetter };
 })(typeof self !== "undefined" ? self : globalThis);

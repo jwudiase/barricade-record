@@ -98,6 +98,11 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .rec .tbl span { color: var(--muted); }
 .rec .tbl b { font-variant-numeric: tabular-nums; }
 
+.xlopt h2 { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; letter-spacing: .02em; }
+.stepper { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+.stepper button { width: 34px; padding: 5px 0; font-size: 16px; line-height: 1; }
+.stepper b { min-width: 26px; text-align: center; font-size: 16px; font-variant-numeric: tabular-nums; }
+.xlopt .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
 .row { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: center; margin-bottom: 10px; }
 .row > label, .row > span.lbl { font-size: 13px; color: var(--muted); }
 .row .fixed { font-size: 13px; }
@@ -171,6 +176,19 @@ details.help li { margin-bottom: 4px; }
         <button id="btn-excel">전체 기록 엑셀 받기</button>
       </div>
 
+      <div class="card xlopt">
+        <h2>엑셀 후반 그래프 기준</h2>
+        <div class="stepper">
+          <span>후반 시작: 쓴 벽 합계</span>
+          <button id="late-minus" type="button" aria-label="기준 낮추기">−</button>
+          <b id="late-val">14</b>
+          <button id="late-plus" type="button" aria-label="기준 높이기">+</button>
+          <span>개 이상</span>
+        </div>
+        <label class="check"><input type="checkbox" id="late-empty"> 한쪽 벽이 다 떨어져도 후반으로 보기</label>
+        <div class="hint" id="late-hint"></div>
+      </div>
+
       <div class="card rec">
         <h2>자동 기록</h2>
         <div class="line"><span class="rec-dot" id="rec-dot"></span><span id="rec-line"></span></div>
@@ -217,7 +235,7 @@ details.help li { margin-bottom: 4px; }
           <li>강도 변경은 다음 AI 수부터, 진영 변경은 새 게임부터 적용됩니다. 어떤 강도였는지도 함께 기록됩니다.</li>
           <li>창을 닫았다 다시 열면 진행 중이던 판을 이어서 둡니다. 인터넷이 끊겨도 기록은 보관했다가 다시 연결되면 보냅니다.</li>
           <li>"전체 기록 엑셀 받기"는 조원 모두의 기록을 엑셀 파일 하나로 내려받습니다. 끝까지 둔 판의 후반 국면으로 만든 요인별 승률 그래프와 회귀선도 함께 들어 있습니다.</li>
-          <li>국면 기준: 두 사람이 쓴 벽의 합계가 0~5개면 초반, 6~13개면 중반, 14개 이상이거나 한쪽 벽이 다 떨어지면 후반입니다.</li>
+          <li>국면 기준: 두 사람이 쓴 벽의 합계가 0~5개면 초반, 6~13개면 중반, 14개 이상이거나 한쪽 벽이 다 떨어지면 후반입니다. 후반 시작 기준은 '엑셀 후반 그래프 기준'에서 바꿀 수 있고, 엑셀을 받을 때 이미 둔 판까지 그 기준으로 다시 계산됩니다.</li>
         </ul>
       </details>
     </aside>
@@ -234,13 +252,13 @@ details.help li { margin-bottom: 4px; }
   </form>
 </div>
 
-<script src="config.js?v=1.1"></script>
-<script src="zobrist.js?v=1.1"></script>
-<script src="engine.js?v=1.1"></script>
-<script src="record.js?v=1.1"></script>
-<script src="store.js?v=1.1"></script>
-<script src="excel.js?v=1.1"></script>
-<script src="xlcharts.js?v=1.1"></script>
-<script src="app.js?v=1.1"></script>
+<script src="config.js?v=1.2"></script>
+<script src="zobrist.js?v=1.2"></script>
+<script src="engine.js?v=1.2"></script>
+<script src="record.js?v=1.2"></script>
+<script src="store.js?v=1.2"></script>
+<script src="excel.js?v=1.2"></script>
+<script src="xlcharts.js?v=1.2"></script>
+<script src="app.js?v=1.2"></script>
 </body>
 </html>

@@ -8,7 +8,7 @@
   const FILES = "abcdefghi";
   const LEVELS = [[1, "1수 앞"], [2, "2수 앞 · 입문"], [3, "3수 앞"], [4, "4수 앞 · 보통"], [5, "5수 앞"],
                   [6, "6수 앞 · 강함 (권장)"], [7, "7수 앞 · 매우 강함"], [8, "8수 앞 · 최강 (느림)"]];
-  const DEFAULTS = { side: 0, level: 6, showPaths: false, flip: true };
+  const DEFAULTS = { side: 0, level: 6, showPaths: false, flip: true, lateWalls: 14, lateOnEmpty: true };
   const KEY = "barricade-rec-settings", GKEY = "barricade-rec-game", PKEY = "barricade-rec-player";
 
   const $ = (id) => document.getElementById(id);
@@ -55,6 +55,8 @@
     try {
       const s = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(KEY) || "{}"));
       if (!LEVELS.some(([v]) => v === s.level)) s.level = DEFAULTS.level;
+      if (!Number.isInteger(s.lateWalls) || s.lateWalls < 1 || s.lateWalls > 20) s.lateWalls = DEFAULTS.lateWalls;
+      s.lateOnEmpty = s.lateOnEmpty !== false;
       return s;
     } catch (e) { return Object.assign({}, DEFAULTS); }
   }
@@ -558,7 +560,7 @@
     const sn = snap || R.snapshot(s);
     const f = sn.f[G.human];
     const used = 2 * B.MAX_WALLS - s[B.WL0] - s[B.WL1];
-    const items = [["국면", G.over ? "종료" : R.phaseOf(s)], ["쓴 벽 합계", used + " / 20"],
+    const items = [["국면", G.over ? "종료" : R.phaseFromWalls(s[B.WL0], s[B.WL1], lateOpt())], ["쓴 벽 합계", used + " / 20"],
                    ["우회율", fmt(f[7])], ["벽 점유율", fmt(f[8])], ["경로 취약도", fmt(f[9])],
                    ["공격 잠재력", fmt(f[10])], ["경로 폭", fmt(f[11])], ["중앙 이탈도", fmt(f[12])]];
     for (const [k, v] of items) {
@@ -570,6 +572,15 @@
     }
   }
   const fmt = (x) => (Number.isInteger(x) ? String(x) : x.toFixed(2));
+  const lateOpt = () => ({ late: settings.lateWalls, onEmpty: settings.lateOnEmpty });
+  function renderLateOpt() {
+    $("late-val").textContent = String(settings.lateWalls);
+    $("late-minus").disabled = settings.lateWalls <= 1;
+    $("late-plus").disabled = settings.lateWalls >= 20;
+    $("late-empty").checked = !!settings.lateOnEmpty;
+    $("late-hint").textContent = "지금 기준: " + window.BR_EXCEL.ruleText(lateOpt()) +
+      ". 엑셀을 받을 때 이미 둔 판까지 이 기준으로 다시 계산합니다. 저장되는 기록은 바뀌지 않습니다.";
+  }
 
   function render() { refreshLegal(); draw(); renderPanel(); }
 
@@ -613,13 +624,14 @@
       await store.flush();
       const [games, moves] = await Promise.all([store.fetchAll("games", "created_at.asc"), store.fetchAll("moves", "id.asc"), loadExcelJs()]);
       btn.textContent = "엑셀 만드는 중…";
-      const { wb, charts } = window.BR_EXCEL.buildWorkbook(window.ExcelJS, games, moves);
+      const { wb, charts } = window.BR_EXCEL.buildWorkbook(window.ExcelJS, games, moves, lateOpt());
       let buf = await wb.xlsx.writeBuffer();
       btn.textContent = "그래프 넣는 중…";
       buf = await window.BR_XLCHARTS.addCharts(window.JSZip, buf, charts);
       const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const d = new Date(Date.now() + 9 * 3600e3).toISOString();
-      const name = "바리케이드_기록_" + d.slice(0, 10).replace(/-/g, "") + "_" + d.slice(11, 16).replace(":", "") + ".xlsx";
+      const name = "바리케이드_기록_" + d.slice(0, 10).replace(/-/g, "") + "_" + d.slice(11, 16).replace(":", "") +
+                   "_후반" + settings.lateWalls + (settings.lateOnEmpty ? "" : "벽만") + ".xlsx";
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = name;
@@ -696,6 +708,10 @@
     b.addEventListener("click", () => { settings.side = +b.dataset.side; saveSettings(); renderPanel(); });
   }
   $("level").addEventListener("change", (e) => { settings.level = +e.target.value; saveSettings(); });
+  const setLate = (v) => { settings.lateWalls = Math.max(1, Math.min(20, v)); saveSettings(); renderLateOpt(); renderRecord(); };
+  $("late-minus").addEventListener("click", () => setLate(settings.lateWalls - 1));
+  $("late-plus").addEventListener("click", () => setLate(settings.lateWalls + 1));
+  $("late-empty").addEventListener("change", (e) => { settings.lateOnEmpty = e.target.checked; saveSettings(); renderLateOpt(); renderRecord(); });
   $("show-paths").addEventListener("change", (e) => { settings.showPaths = e.target.checked; saveSettings(); draw(); });
   $("flip").addEventListener("change", (e) => { settings.flip = e.target.checked; saveSettings(); render(); });
   window.addEventListener("resize", setupCanvas);
@@ -711,6 +727,7 @@
     for (const [v, label] of LEVELS) { const o = document.createElement("option"); o.value = v; o.textContent = label; sel.appendChild(o); }
   })();
   setupCanvas();
+  renderLateOpt();
   if (restoreGame()) { setMsg("진행 중이던 게임을 이어서 합니다", "turn", 3000); next(); }
   else render();
   if (!player) openNameDialog();
