@@ -728,11 +728,26 @@
   })();
   setupCanvas();
   renderLateOpt();
-  if (restoreGame()) { setMsg("진행 중이던 게임을 이어서 합니다", "turn", 3000); next(); }
-  else render();
-  if (!player) openNameDialog();
-  else if (!G) newGame();
-  store.flush();
+  render();
+  (async function start() {
+    // a saved game whose record was deleted from the team table can't be continued: start a new one
+    let dropped = false;
+    try {
+      const saved = JSON.parse(localStorage.getItem(GKEY) || "null");
+      if (saved && saved.id && !saved.over && !store.hasQueued("games", saved.id) && (await store.exists("games", saved.id)) === false) {
+        localStorage.removeItem(GKEY);
+        dropped = true;
+      }
+    } catch (e) { /* storage blocked */ }
+    if (restoreGame()) { setMsg("진행 중이던 게임을 이어서 합니다", "turn", 3000); next(); }
+    else render();
+    if (!player) openNameDialog();
+    else if (!G) {
+      newGame();
+      if (dropped) { setMsg("이전 판의 기록이 삭제되어 새 게임을 시작했습니다", "turn", 5000); renderPanel(); }
+    }
+    store.flush();
+  })();
 
   // test hook (used by automated checks only)
   window.__BR = { get G() { return G; }, playMine, newGame, store, get busy() { return busy; } };

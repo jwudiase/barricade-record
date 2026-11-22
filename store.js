@@ -91,6 +91,16 @@
         this.onchange();
       }
     }
+    /** Is a row with this id still waiting in the outbox? */
+    hasQueued(table, id) { return this.read().some((x) => x.table === table && x.row && x.row.id === id); }
+    /** Does the row exist on the server? true / false, or null when the server can't be reached. */
+    async exists(table, id) {
+      try {
+        const res = await fetch(this.url + table + "?select=id&id=eq." + encodeURIComponent(id), { headers: this.headers() });
+        if (!res.ok) return null;
+        return (await res.json()).length > 0;
+      } catch (e) { return null; }
+    }
     /** All rows of a table (paged), ordered by the given column. */
     async fetchAll(table, order) {
       const out = [];
