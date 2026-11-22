@@ -8,7 +8,7 @@
   const FILES = "abcdefghi";
   const LEVELS = [[1, "1수 앞"], [2, "2수 앞 · 입문"], [3, "3수 앞"], [4, "4수 앞 · 보통"], [5, "5수 앞"],
                   [6, "6수 앞 · 강함 (권장)"], [7, "7수 앞 · 매우 강함"], [8, "8수 앞 · 최강 (느림)"]];
-  const DEFAULTS = { side: 0, level: 6, showPaths: false, flip: true, lateWalls: 14, lateOnEmpty: true };
+  const DEFAULTS = { side: 0, level: 6, showPaths: false, flip: true, rangeMin: 14, rangeMax: 20 };
   const KEY = "barricade-rec-settings", GKEY = "barricade-rec-game", PKEY = "barricade-rec-player";
 
   const $ = (id) => document.getElementById(id);
@@ -55,8 +55,12 @@
     try {
       const s = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(KEY) || "{}"));
       if (!LEVELS.some(([v]) => v === s.level)) s.level = DEFAULTS.level;
-      if (!Number.isInteger(s.lateWalls) || s.lateWalls < 1 || s.lateWalls > 20) s.lateWalls = DEFAULTS.lateWalls;
-      s.lateOnEmpty = s.lateOnEmpty !== false;
+      if (Number.isInteger(s.lateWalls) && !("rangeMin" in JSON.parse(localStorage.getItem(KEY) || "{}"))) s.rangeMin = s.lateWalls;   // v1.2 setting
+      delete s.lateWalls; delete s.lateOnEmpty;
+      const ok = (v) => Number.isInteger(v) && v >= 0 && v <= 20;
+      if (!ok(s.rangeMin)) s.rangeMin = DEFAULTS.rangeMin;
+      if (!ok(s.rangeMax)) s.rangeMax = DEFAULTS.rangeMax;
+      if (s.rangeMax < s.rangeMin) s.rangeMax = s.rangeMin;
       return s;
     } catch (e) { return Object.assign({}, DEFAULTS); }
   }
@@ -560,7 +564,8 @@
     const sn = snap || R.snapshot(s);
     const f = sn.f[G.human];
     const used = 2 * B.MAX_WALLS - s[B.WL0] - s[B.WL1];
-    const items = [["국면", G.over ? "종료" : R.phaseFromWalls(s[B.WL0], s[B.WL1], lateOpt())], ["쓴 벽 합계", used + " / 20"],
+    const inR = used >= settings.rangeMin && used <= settings.rangeMax;
+    const items = [["국면", G.over ? "종료" : R.phaseOf(s)], ["쓴 벽 합계", used + " / 20" + (inR ? " · 범위 안" : "")],
                    ["우회율", fmt(f[7])], ["벽 점유율", fmt(f[8])], ["경로 취약도", fmt(f[9])],
                    ["공격 잠재력", fmt(f[10])], ["경로 폭", fmt(f[11])], ["중앙 이탈도", fmt(f[12])]];
     for (const [k, v] of items) {
@@ -572,14 +577,16 @@
     }
   }
   const fmt = (x) => (Number.isInteger(x) ? String(x) : x.toFixed(2));
-  const lateOpt = () => ({ late: settings.lateWalls, onEmpty: settings.lateOnEmpty });
+  const rangeOpt = () => ({ min: settings.rangeMin, max: settings.rangeMax });
   function renderLateOpt() {
-    $("late-val").textContent = String(settings.lateWalls);
-    $("late-minus").disabled = settings.lateWalls <= 1;
-    $("late-plus").disabled = settings.lateWalls >= 20;
-    $("late-empty").checked = !!settings.lateOnEmpty;
-    $("late-hint").textContent = "지금 기준: " + window.BR_EXCEL.ruleText(lateOpt()) +
-      ". 엑셀을 받을 때 이미 둔 판까지 이 기준으로 다시 계산합니다. 저장되는 기록은 바뀌지 않습니다.";
+    $("rmin-val").textContent = String(settings.rangeMin);
+    $("rmax-val").textContent = String(settings.rangeMax);
+    $("rmin-minus").disabled = settings.rangeMin <= 0;
+    $("rmin-plus").disabled = settings.rangeMin >= settings.rangeMax;
+    $("rmax-minus").disabled = settings.rangeMax <= settings.rangeMin;
+    $("rmax-plus").disabled = settings.rangeMax >= 20;
+    $("late-hint").textContent = "지금 범위: " + window.BR_EXCEL.rangeText(rangeOpt()) +
+      "인 장면. 엑셀을 받을 때 이미 둔 판까지 이 범위로 다시 계산합니다. 저장되는 기록은 바뀌지 않습니다.";
   }
 
   function render() { refreshLegal(); draw(); renderPanel(); }
@@ -624,14 +631,14 @@
       await store.flush();
       const [games, moves] = await Promise.all([store.fetchAll("games", "created_at.asc"), store.fetchAll("moves", "id.asc"), loadExcelJs()]);
       btn.textContent = "엑셀 만드는 중…";
-      const { wb, charts } = window.BR_EXCEL.buildWorkbook(window.ExcelJS, games, moves, lateOpt());
+      const { wb, charts } = window.BR_EXCEL.buildWorkbook(window.ExcelJS, games, moves, rangeOpt());
       let buf = await wb.xlsx.writeBuffer();
       btn.textContent = "그래프 넣는 중…";
       buf = await window.BR_XLCHARTS.addCharts(window.JSZip, buf, charts);
       const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const d = new Date(Date.now() + 9 * 3600e3).toISOString();
       const name = "바리케이드_기록_" + d.slice(0, 10).replace(/-/g, "") + "_" + d.slice(11, 16).replace(":", "") +
-                   "_후반" + settings.lateWalls + (settings.lateOnEmpty ? "" : "벽만") + ".xlsx";
+                   "_벽" + window.BR_EXCEL.rangeShort(rangeOpt()) + ".xlsx";
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = name;
@@ -708,10 +715,15 @@
     b.addEventListener("click", () => { settings.side = +b.dataset.side; saveSettings(); renderPanel(); });
   }
   $("level").addEventListener("change", (e) => { settings.level = +e.target.value; saveSettings(); });
-  const setLate = (v) => { settings.lateWalls = Math.max(1, Math.min(20, v)); saveSettings(); renderLateOpt(); renderRecord(); };
-  $("late-minus").addEventListener("click", () => setLate(settings.lateWalls - 1));
-  $("late-plus").addEventListener("click", () => setLate(settings.lateWalls + 1));
-  $("late-empty").addEventListener("change", (e) => { settings.lateOnEmpty = e.target.checked; saveSettings(); renderLateOpt(); renderRecord(); });
+  const setRange = (mn, mx) => {
+    settings.rangeMin = Math.max(0, Math.min(20, mn));
+    settings.rangeMax = Math.max(settings.rangeMin, Math.min(20, mx));
+    saveSettings(); renderLateOpt(); renderRecord();
+  };
+  $("rmin-minus").addEventListener("click", () => setRange(settings.rangeMin - 1, settings.rangeMax));
+  $("rmin-plus").addEventListener("click", () => setRange(Math.min(settings.rangeMin + 1, settings.rangeMax), settings.rangeMax));
+  $("rmax-minus").addEventListener("click", () => setRange(settings.rangeMin, Math.max(settings.rangeMax - 1, settings.rangeMin)));
+  $("rmax-plus").addEventListener("click", () => setRange(settings.rangeMin, settings.rangeMax + 1));
   $("show-paths").addEventListener("change", (e) => { settings.showPaths = e.target.checked; saveSettings(); draw(); });
   $("flip").addEventListener("change", (e) => { settings.flip = e.target.checked; saveSettings(); render(); });
   window.addEventListener("resize", setupCanvas);

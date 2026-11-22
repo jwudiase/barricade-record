@@ -1,7 +1,7 @@
 /* Builds the single Excel file with every team member's games (ExcelJS), including the late-game
  * factor graphs. Pure functions of the stored rows, so they can also be run under Node for testing.
  *   buildWorkbook(ExcelJS, games, moves) -> { wb, charts }   (charts are added afterwards by xlcharts.js)
- *   lateStats(games, moves)              -> per-factor late-game win rates and weighted regression
+ *   lateStats(games, moves, {min,max})   -> per-factor win rates in the chosen wall-count range, weighted regression
  */
 (function (root) {
   "use strict";
@@ -32,25 +32,36 @@
   /** Korean subject particle 이/가 after a word. */
   const iga = (w) => { const c = w.charCodeAt(w.length - 1); return c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 ? "이" : "가"; };
 
-  /** Phase from the walls both players have used so far. opt.late = walls used from which 후반 starts (default 14),
-   * opt.onEmpty = a player with no walls left also means 후반 (default true). */
-  const normOpt = (opt) => ({ late: opt && opt.late ? opt.late : 14, onEmpty: !(opt && opt.onEmpty === false) });
-  function phaseFromWalls(wMe, wOp, opt) {
-    const o = normOpt(opt);
+  /** Fixed phase rule, the same as the label the app stores: 0-5 walls used 초반, 6-13 중반, 14+ or a side with none 후반. */
+  function phaseFromWalls(wMe, wOp) {
     const used = 20 - wMe - wOp;
-    if (used >= o.late || (o.onEmpty && (wMe === 0 || wOp === 0))) return "후반";
+    if (used >= 14 || wMe === 0 || wOp === 0) return "후반";
     if (used >= 6) return "중반";
     return "초반";
   }
-  const phaseOfRow = (m, opt) => (m.b_w_me === null || m.b_w_me === undefined ? (m.phase === "종반" ? "후반" : m.phase)
-                                                                              : phaseFromWalls(m.b_w_me, m.b_w_op, opt));
-  /** Human-readable description of the phase rule in use. */
-  function ruleText(opt) {
-    const o = normOpt(opt);
-    const mid = o.late > 6 ? "6~" + (o.late - 1) + "개 중반, " : "";
-    return "두 사람이 쓴 벽의 합계 " + (o.late > 6 ? "0~5개 초반, " : "0~" + (o.late - 1) + "개 초반, ") + mid + o.late + "개 이상" +
-           (o.onEmpty ? "이거나 한쪽 벽이 다 떨어지면" : "이면") + " 후반";
+  const hasWalls = (m) => m.b_w_me !== null && m.b_w_me !== undefined && m.b_w_op !== null && m.b_w_op !== undefined;
+  const phaseOfRow = (m) => (hasWalls(m) ? phaseFromWalls(m.b_w_me, m.b_w_op) : (m.phase === "종반" ? "후반" : m.phase));
+
+  /** Analysis range for the graphs: positions where the walls both players have used so far lie in [min, max]. */
+  function normOpt(opt) {
+    let min = opt && Number.isInteger(opt.min) ? opt.min : 14;
+    let max = opt && Number.isInteger(opt.max) ? opt.max : 20;
+    min = Math.max(0, Math.min(20, min));
+    max = Math.max(min, Math.min(20, max));
+    return { min, max };
   }
+  const usedOf = (m) => 20 - m.b_w_me - m.b_w_op;
+  const inRange = (m, o) => hasWalls(m) && usedOf(m) >= o.min && usedOf(m) <= o.max;
+  /** Human-readable description of the analysis range. */
+  function rangeText(opt) {
+    const o = normOpt(opt);
+    const head = "두 사람이 쓴 벽의 합계가 ";
+    if (o.min === o.max) return head + "정확히 " + o.min + "개";
+    if (o.max === 20) return head + o.min + "개 이상";
+    if (o.min === 0) return head + o.max + "개 이하";
+    return head + o.min + "개 이상 " + o.max + "개 이하";
+  }
+  const rangeShort = (opt) => { const o = normOpt(opt); return o.min === o.max ? String(o.min) : o.min + "~" + o.max; };
 
   /** Bin of a factor value: 0.1-wide bins, or the five exact levels of 중앙 이탈도. */
   function binOf(f, x) {
@@ -91,13 +102,14 @@
 
   /** Late-game win rate per factor bin. Each finished game counts at most once per bin. */
   function lateStats(games, moves, opt) {
+    const o = normOpt(opt);
     const { byGame, played } = groupGames(games, moves);
     const used = [];
     for (const g of played) {
       const list = byGame.get(g.id);
       const last = list[list.length - 1];
       if (!last || !last.game_over) continue;            // unfinished games have no result
-      const late = list.filter((m) => phaseOfRow(m, opt) === "후반");
+      const late = list.filter((m) => inRange(m, o));
       if (!late.length) continue;
       used.push({ g, won: last.winner === "나", late });
     }
@@ -163,7 +175,7 @@
       const recs = mine.filter((m) => m.rec_match !== null && m.rec_match !== undefined);
       const losses = mine.filter((m) => m.eval_loss !== null && m.eval_loss !== undefined);
       const cnt = (t) => mine.filter((m) => m.action_type === t).length;
-      const lateStart = list.find((m) => phaseOfRow(m, o) === "후반");
+      const lateStart = list.find((m) => inRange(m, o));
       info.set(g.id, {
         no: i + 1, g, list, done, result,
         level: levels.length === 1 ? levels[0] : (levels.length ? levels.join("→") : (g.start_level ?? "")),
@@ -183,7 +195,7 @@
 
     // ------------------------------------------------------------ 경기 요약
     const ws1 = wb.addWorksheet("경기 요약", { views: [{ state: "frozen", ySplit: 1 }] });
-    const h1 = ["경기 번호", "시작 시각", "플레이어", "기기", "내 진영", "AI 강도", "결과", "총 수", "후반 시작 수", "내 수",
+    const h1 = ["경기 번호", "시작 시각", "플레이어", "기기", "내 진영", "AI 강도", "결과", "총 수", "범위 진입 수", "내 수",
                 "내 벽 사용", "AI 벽 사용", "내 이동", "내 공격 벽", "내 수비 벽", "내 기타 벽",
                 "AI 추천 일치율", "평균 평가 손실", "경기 ID"];
     ws1.addRow(h1);
@@ -203,10 +215,10 @@
     const ws = wb.addWorksheet(LATE_SHEET, { views: [{ showGridLines: false }] });
     [13, 9, 8, 8, 9, 13, 13, 11].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
     ws.getColumn(9).width = 3;
-    ws.getCell("A1").value = "후반 국면 · 요인별 승률 그래프와 회귀 분석  (후반 기준: 쓴 벽 " + o.late + "개 이상" + (o.onEmpty ? " 또는 한쪽 벽 0개" : "") + ")";
+    ws.getCell("A1").value = "요인별 승률 그래프와 회귀 분석  (분석 범위: 쓴 벽 합계 " + rangeShort(o) + "개)";
     ws.getCell("A1").font = { bold: true, size: 14 };
     const notes = [
-      "· 끝까지 둔 판의 후반 장면만 씁니다. 국면 기준: " + ruleText(o) + ".",
+      "· 끝까지 둔 판에서 " + rangeText(o) + "인 장면만 씁니다 (범위는 앱의 '엑셀 그래프 분석 범위'에서 바꿉니다).",
       "· 값은 모두 나(사람) 기준이고, 0.1 간격 구간으로 묶습니다 (중앙 이탈도는 0, 0.25, 0.5, 0.75, 1의 5단계).",
       "· 한 판에서 같은 구간이 여러 번 나와도 그 판은 그 구간에 한 번만 셉니다. 승률 = 그 구간을 지난 판 중 내가 이긴 판의 비율.",
       "· 회귀선: " + MIN_N + "판 이상인 구간만, 판 수를 가중치로 한 직선(가중 최소제곱법). " + MIN_N + "판 미만 구간은 회색 점으로만 표시합니다.",
@@ -288,7 +300,7 @@
 
     // ------------------------------------------------------------ 수 기록
     const ws2 = wb.addWorksheet("수 기록", { views: [{ state: "frozen", ySplit: 2, xSplit: 4 }] });
-    const base = ["경기 번호", "플레이어", "이 판 결과", "수 번호", "둔 쪽", "수", "행동 종류", "국면", "AI 강도"];
+    const base = ["경기 번호", "플레이어", "이 판 결과", "수 번호", "둔 쪽", "수", "행동 종류", "국면", "그래프 범위", "AI 강도"];
     const six = SIX.map((f) => f.name);
     const sixD = SIX.map((f) => "Δ " + f.name);
     const ref = REF.map(([, n]) => n);
@@ -319,7 +331,7 @@
       const x = info.get(g.id);
       for (const m of x.list) {
         ws2.addRow([
-          x.no, g.player, x.result, m.ply, m.mover, m.notation, m.action_type, phaseOfRow(m, o), m.ai_level,
+          x.no, g.player, x.result, m.ply, m.mover, m.notation, m.action_type, phaseOfRow(m), inRange(m, o) ? "포함" : "", m.ai_level,
           ...SIX.map((f) => r4(m["b_" + f.key])),
           ...SIX.map((f) => r4(m["c_" + f.key])),
           ...REF.map(([k]) => r4(m["b_" + k])),
@@ -330,7 +342,7 @@
         ]);
       }
     }
-    const widths = [8, 12, 8, 7, 6, 6, 9, 6, 7, ...six.map(() => 10), ...sixD.map(() => 10), ...ref.map(() => 9),
+    const widths = [8, 12, 8, 7, 6, 6, 9, 6, 8, 7, ...six.map(() => 10), ...sixD.map(() => 10), ...ref.map(() => 9),
                     10, 8, 10, 9, 9, 9, 9, 9, 9, 20, 38];
     widths.forEach((w, i) => { ws2.getColumn(i + 1).width = w; });
     ws2.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: headers.length } };
@@ -372,8 +384,9 @@
       ["위협(벽1) / 기회(벽1)", "벽 1개로 늘릴 수 있는 내 거리 / 상대 거리의 최대 증가량."],
       ["갈래 봉쇄 위협·기회(벽2)", "벽을 최대 2개 더 놓아 늘릴 수 있는 내 거리 / 상대 거리의 최대 증가량."],
       ["행동 종류", "이동 / 공격 벽(상대 거리를 늘린 벽) / 수비 벽(둔 쪽의 위협(벽1)·위협(벽2) 중 하나 이상을 줄이고 어느 것도 늘리지 않은 벽) / 기타 벽."],
-      ["국면", "두기 전 국면 기준, 이 파일은 '" + ruleText(o) + "'으로 나눴습니다. 기준은 앱의 '엑셀 후반 그래프 기준'에서 바꿀 수 있고, 이미 둔 판도 남은 벽 수로 다시 계산합니다. (기록에 저장되는 국면 이름표는 14개 기준)"],
-      ["후반 그래프", "끝까지 둔 판의 후반 장면만 쓰고, 한 판은 한 구간에 한 번만 셉니다. 구간 승률 = 그 구간을 지난 판 중 내가 이긴 판 비율. 회귀선은 " + MIN_N + "판 이상인 구간만 판 수를 가중치로 한 직선입니다. 기울기는 요인이 1 오를 때 승률 변화, R²는 선이 점들을 얼마나 잘 설명하는지(0~1)입니다."],
+      ["국면", "두기 전 국면 기준, 두 사람이 쓴 벽의 합계로 나눕니다. 0~5개 초반, 6~13개 중반, 14개 이상이거나 한쪽 벽이 다 떨어지면 후반."],
+      ["그래프 범위", "이 파일의 그래프는 " + rangeText(o) + "인 장면으로 만들었습니다. '수 기록' 시트의 '그래프 범위' 열에 포함된 장면이 표시됩니다. 범위는 앱에서 바꿀 수 있고, 엑셀을 받을 때 이미 둔 판까지 다시 계산합니다."],
+      ["후반 그래프", "끝까지 둔 판에서 그래프 범위에 든 장면만 쓰고, 한 판은 한 구간에 한 번만 셉니다. 구간 승률 = 그 구간을 지난 판 중 내가 이긴 판 비율. 회귀선은 " + MIN_N + "판 이상인 구간만 판 수를 가중치로 한 직선입니다. 기울기는 요인이 1 오를 때 승률 변화, R²는 선이 점들을 얼마나 잘 설명하는지(0~1)입니다."],
       ["AI 강도", "AI 알파베타 탐색 깊이(몇 수 앞까지 보는지). 그 수를 둘 때의 설정값입니다."],
       ["AI 평가 (나 기준)", "AI가 자기 수를 고를 때 본 형세를 나 기준으로 바꾼 값. 100 = 1수 차이, + 는 나에게 유리. ±99,000을 넘으면 강제 승패 수순을 찾았다는 뜻입니다."],
       ["AI 추천 수", "내 차례에 AI가 같은 강도로 계산한 '나라면 둘 수'."],
@@ -389,5 +402,5 @@
     return { wb, charts };
   }
 
-  root.BR_EXCEL = { buildWorkbook, lateStats, phaseFromWalls, ruleText, binOf, wls, isMate, SIX, MIN_N, colLetter };
+  root.BR_EXCEL = { buildWorkbook, lateStats, phaseFromWalls, rangeText, rangeShort, normOpt, binOf, wls, isMate, SIX, MIN_N, colLetter };
 })(typeof self !== "undefined" ? self : globalThis);
